@@ -7,7 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -90,5 +89,5 @@ def test_parity_long_local_file() -> None:
         pytest.fail("\n".join(errors))
 
     # explicit tolerances from project contract
-    assert MAX_BEAT_TIME_ABS == 0.01
-    assert MAX_CONF_ABS == 1e-5
+    assert MAX_BEAT_TIME_ABS == 1e-6
+    assert MAX_CONF_ABS == 1e-7

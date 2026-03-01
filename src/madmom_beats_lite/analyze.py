@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+import os
+import threading
 from typing import Callable
 
 import numpy as np
@@ -18,6 +21,13 @@ ProgressCallback = Callable[[int], None]
 @dataclass
 class _ProgressState:
     last_percent: int = -1
+
+
+@dataclass
+class _ProcessorBundle:
+    rnn: RNNDownBeatProcessor
+    dbn: DBNDownBeatTrackingProcessor
+    lock: threading.Lock
 
 
 def _progress_callback(progress: bool | Callable[[int], None]) -> ProgressCallback:
@@ -49,14 +59,38 @@ def _validate_pcm(samples: np.ndarray, sample_rate: int) -> None:
         raise ValueError("`sample_rate` must be exactly 44100.")
 
 
-def _compute_features(samples: np.ndarray, emit: Callable[[int], None]) -> tuple[np.ndarray, np.ndarray]:
+def _resolve_num_threads() -> int:
+    raw = os.environ.get("MADMOM_BEATS_LITE_NUM_THREADS")
+    if raw is None:
+        return 1
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError("MADMOM_BEATS_LITE_NUM_THREADS must be an integer.") from exc
+    if value < 1:
+        raise ValueError("MADMOM_BEATS_LITE_NUM_THREADS must be >= 1.")
+    return value
+
+
+@lru_cache(maxsize=4)
+def _processor_bundle(num_threads: int) -> _ProcessorBundle:
+    # Reuse processor instances to avoid rebuilding multiprocessing pools on
+    # every analyze call (a major overhead in repeated invocations).
+    rnn = RNNDownBeatProcessor(num_threads=num_threads)
+    dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=FPS, num_threads=num_threads)
+    return _ProcessorBundle(rnn=rnn, dbn=dbn, lock=threading.Lock())
+
+
+def _compute_features(
+    samples: np.ndarray, emit: Callable[[int], None], num_threads: int
+) -> tuple[np.ndarray, np.ndarray]:
     emit(5)
-    rnn = RNNDownBeatProcessor()
+    processors = _processor_bundle(num_threads)
     emit(20)
-    activations = rnn(samples)
-    emit(75)
-    dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=FPS)
-    beats = dbn(activations)
+    with processors.lock:
+        activations = processors.rnn(samples)
+        emit(75)
+        beats = processors.dbn(activations)
     emit(90)
     return activations, beats
 
@@ -90,8 +124,9 @@ def analyze_pcm(
 
     emit(0)
     _validate_pcm(samples, sample_rate)
+    num_threads = _resolve_num_threads()
 
-    activations, beats = _compute_features(samples, emit)
+    activations, beats = _compute_features(samples, emit, num_threads)
 
     beat_times = beats[:, 0].astype(float) if len(beats) else np.empty(0, dtype=float)
     beat_numbers = beats[:, 1].astype(int) if len(beats) else np.empty(0, dtype=int)

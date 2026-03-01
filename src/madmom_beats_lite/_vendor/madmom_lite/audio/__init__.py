@@ -1,27 +1,3 @@
-"""Minimal audio subpackage used by downbeat pipeline."""
+"""Vendored audio package namespace (imports are intentionally lazy)."""
 
-from .signal import FramedSignal, FramedSignalProcessor, Signal, SignalProcessor
-from .spectrogram import (
-    FilteredSpectrogram,
-    FilteredSpectrogramProcessor,
-    LogarithmicSpectrogram,
-    LogarithmicSpectrogramProcessor,
-    SpectrogramDifference,
-    SpectrogramDifferenceProcessor,
-)
-from .stft import ShortTimeFourierTransform, ShortTimeFourierTransformProcessor
-
-__all__ = [
-    "Signal",
-    "SignalProcessor",
-    "FramedSignal",
-    "FramedSignalProcessor",
-    "ShortTimeFourierTransform",
-    "ShortTimeFourierTransformProcessor",
-    "FilteredSpectrogram",
-    "FilteredSpectrogramProcessor",
-    "LogarithmicSpectrogram",
-    "LogarithmicSpectrogramProcessor",
-    "SpectrogramDifference",
-    "SpectrogramDifferenceProcessor",
-]
+__all__: list[str] = []

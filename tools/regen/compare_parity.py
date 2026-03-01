@@ -14,8 +14,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from madmom_beats_lite import analyze_pcm
 from tools.regen.common import FIXTURES_DIR, GOLDENS_DIR, read_wav_mono_float
 
-MAX_BEAT_TIME_ABS = 0.01
-MAX_CONF_ABS = 1e-5
+MAX_BEAT_TIME_ABS = 1e-6
+MAX_CONF_ABS = 1e-7
 
 
 def compare_result(ours: dict, golden: dict, fixture_name: str) -> list[str]:
