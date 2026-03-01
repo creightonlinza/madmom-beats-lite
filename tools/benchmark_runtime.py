@@ -95,8 +95,8 @@ def main() -> None:
     parser.add_argument(
         "--threads",
         type=int,
-        default=10,
-        help="Worker threads for both upstream CLI (-j) and lite (MADMOM_BEATS_LITE_NUM_THREADS).",
+        default=1,
+        help="Worker threads for both upstream CLI (-j) and lite (MADMOM_BEATS_LITE_NUM_THREADS). Default is 1 for lite deployment parity.",
     )
     parser.add_argument(
         "--upstream-cli",

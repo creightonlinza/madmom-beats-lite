@@ -27,8 +27,8 @@ class FeedForwardLayer(Layer):
     """Feed-forward network layer."""
 
     def __init__(self, weights, bias, activation_fn=None):
-        self.weights = weights
-        self.bias = bias.flatten()
+        self.weights = np.asarray(weights, dtype=NN_DTYPE)
+        self.bias = np.asarray(bias, dtype=NN_DTYPE).reshape(-1)
         self.activation_fn = activation_fn
 
     def activate(self, data, **kwargs):
@@ -43,7 +43,7 @@ class RecurrentLayer(FeedForwardLayer):
 
     def __init__(self, weights, bias, recurrent_weights, activation_fn=tanh, init=None):
         super(RecurrentLayer, self).__init__(weights, bias, activation_fn)
-        self.recurrent_weights = recurrent_weights
+        self.recurrent_weights = np.asarray(recurrent_weights, dtype=NN_DTYPE)
         if init is None:
             init = np.zeros(self.bias.size, dtype=NN_DTYPE)
         self.init = init
@@ -94,7 +94,7 @@ class Gate(RecurrentLayer):
     def __init__(self, weights, bias, recurrent_weights, peephole_weights=None, activation_fn=sigmoid):
         super(Gate, self).__init__(weights, bias, recurrent_weights, activation_fn=activation_fn)
         if peephole_weights is not None:
-            peephole_weights = peephole_weights.flatten()
+            peephole_weights = np.asarray(peephole_weights, dtype=NN_DTYPE).reshape(-1)
         self.peephole_weights = peephole_weights
 
     def activate(self, data, prev, state=None):

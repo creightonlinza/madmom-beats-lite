@@ -12,6 +12,7 @@ from ._vendor.madmom_lite.features.downbeats import (
     DBNDownBeatTrackingProcessor,
     RNNDownBeatProcessor,
 )
+from ._vendor.madmom_lite._mem import MemoryLogger
 
 FPS = 100
 TARGET_SAMPLE_RATE = 44100
@@ -84,13 +85,16 @@ def _processor_bundle(num_threads: int) -> _ProcessorBundle:
 def _compute_features(
     samples: np.ndarray, emit: Callable[[int], None], num_threads: int
 ) -> tuple[np.ndarray, np.ndarray]:
+    mem = MemoryLogger()
     emit(5)
     processors = _processor_bundle(num_threads)
     emit(20)
     with processors.lock:
         activations = processors.rnn(samples)
+        mem.log("rnn_activations", activations=activations)
         emit(75)
         beats = processors.dbn(activations)
+        mem.log("dbn_beats", beats=beats)
     emit(90)
     return activations, beats
 
@@ -131,6 +135,12 @@ def analyze_pcm(
     beat_times = beats[:, 0].astype(float) if len(beats) else np.empty(0, dtype=float)
     beat_numbers = beats[:, 1].astype(int) if len(beats) else np.empty(0, dtype=int)
     beat_confidences = _extract_confidences(activations, beat_times, beat_numbers, FPS)
+    MemoryLogger().log(
+        "contract_arrays",
+        beat_times=beat_times,
+        beat_numbers=beat_numbers,
+        beat_confidences=beat_confidences,
+    )
 
     if not (len(beat_times) == len(beat_numbers) == len(beat_confidences)):
         raise RuntimeError("Output invariant violation: beat arrays must have identical lengths.")

@@ -125,8 +125,8 @@ def main() -> None:
     parser.add_argument(
         "--threads",
         type=int,
-        default=10,
-        help="Thread count applied to both upstream CLI (-j) and lite (MADMOM_BEATS_LITE_NUM_THREADS).",
+        default=1,
+        help="Thread count applied to both upstream CLI (-j) and lite (MADMOM_BEATS_LITE_NUM_THREADS). Default is 1 for lite deployment parity.",
     )
     parser.add_argument("--out-dir", type=Path, default=Path("tools/regen/_cache/benchmarks"))
     parser.add_argument("--json", action="store_true", help="Print JSON only")

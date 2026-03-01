@@ -33,10 +33,12 @@ class Spectrogram(np.ndarray):
         if isinstance(stft, Spectrogram):
             data = stft
         elif isinstance(stft, ShortTimeFourierTransform):
-            data = np.abs(stft)
+            data = np.empty(stft.shape, dtype=np.float32)
+            np.abs(stft, out=data)
         else:
             stft = ShortTimeFourierTransform(stft, **kwargs)
-            data = np.abs(stft)
+            data = np.empty(stft.shape, dtype=np.float32)
+            np.abs(stft, out=data)
 
         obj = np.asarray(data).view(cls)
         obj.stft = stft
@@ -108,7 +110,8 @@ class FilteredSpectrogram(Spectrogram):
         if not isinstance(filterbank, Filterbank):
             raise TypeError("not a Filterbank type or instance: %s" % filterbank)
 
-        data = np.dot(spectrogram, filterbank)
+        data = np.empty((spectrogram.shape[0], filterbank.shape[1]), dtype=np.float32)
+        np.dot(spectrogram, filterbank, out=data)
         obj = np.asarray(data).view(cls)
         obj.filterbank = filterbank
         obj.stft = spectrogram.stft
