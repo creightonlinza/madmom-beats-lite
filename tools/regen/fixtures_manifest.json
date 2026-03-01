@@ -1,0 +1,26 @@
+[
+  {
+    "name": "madmom_sample",
+    "filename": "madmom_sample.wav",
+    "url": "https://raw.githubusercontent.com/CPJKU/madmom/main/tests/data/audio/sample.wav",
+    "fallback_local": "source/madmom/tests/data/audio/sample.wav",
+    "attribution": "CPJKU madmom test data",
+    "license": "See upstream madmom repository"
+  },
+  {
+    "name": "madmom_sample2",
+    "filename": "madmom_sample2.wav",
+    "url": "https://raw.githubusercontent.com/CPJKU/madmom/main/tests/data/audio/sample2.wav",
+    "fallback_local": "source/madmom/tests/data/audio/sample2.wav",
+    "attribution": "CPJKU madmom test data",
+    "license": "See upstream madmom repository"
+  },
+  {
+    "name": "waltz_example",
+    "filename": "waltz_example.wav",
+    "url": "https://freesound.org/data/previews/7/7266_5604-lq.wav",
+    "attribution": "nightlaps (Freesound preview 7266)",
+    "license": "Freesound license terms",
+    "generate_if_missing": "waltz_click_track"
+  }
+]

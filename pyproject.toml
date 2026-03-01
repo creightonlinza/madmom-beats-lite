@@ -1,0 +1,47 @@
+[build-system]
+requires = [
+  "setuptools",
+  "wheel",
+  "Cython>=3.0",
+  "numpy>=1.24",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "madmom-beats-lite"
+version = "0.1.0"
+description = "Minimal beat/downbeat extraction from PCM using vendored madmom components"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "madmom-beats-lite maintainers" }]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "packaging>=23.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "requests>=2.31",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+madmom_beats_lite = [
+  "assets/MODELS_LICENSE",
+  "assets/downbeats/2016/downbeats_blstm_*.pkl",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "parity: compares madmom_beats_lite output against upstream madmom goldens",
+  "parity_long: long-running parity check using PARITY_LONG_SOURCE",
+]

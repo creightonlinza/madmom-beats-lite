@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+
+# regen cache (fixtures + goldens + conversions)
+tools/regen/_cache/
+
+# local build artifacts
+src/madmom_beats_lite/_vendor/madmom_lite/ml/hmm.c
+src/madmom_beats_lite/_vendor/madmom_lite/ml/*.so
