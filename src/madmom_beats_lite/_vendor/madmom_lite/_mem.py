@@ -16,9 +16,10 @@ def _format_mb(value: int) -> str:
 class MemoryLogger:
     """Low-overhead logger for coarse memory diagnostics."""
 
-    __slots__ = ("_max_rss",)
+    __slots__ = ("enabled", "_max_rss")
 
-    def __init__(self) -> None:
+    def __init__(self, enabled: bool = False) -> None:
+        self.enabled = bool(enabled)
         self._max_rss = 0
 
     def _rss_bytes(self) -> int:
@@ -28,6 +29,8 @@ class MemoryLogger:
         return rss
 
     def log(self, stage: str, **arrays) -> None:
+        if not self.enabled:
+            return
         parts = []
         total_bytes = 0
         for name, value in arrays.items():

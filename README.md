@@ -28,6 +28,8 @@ result = analyze_pcm(samples, sample_rate=44100, progress=True)
 print(result)
 ```
 
+Set `debug=True` to emit coarse memory telemetry lines prefixed with `mbl_mem` (stage, major array sizes, current/max RSS).
+
 Output contract:
 
 ```json
@@ -62,6 +64,58 @@ PARITY_LONG_SOURCE=your_long_track.m4a PROGRESS=1 pytest -m parity_long
 ## Regen tools
 
 See `tools/regen/README.md`.
+
+## Performance (single-thread baseline)
+
+For deployment parity, benchmark defaults are single-thread (`threads=1`).
+
+Latest long-track benchmark (`gangnam.wav`, 3-run medians, `/usr/bin/time -l`):
+
+- Upstream (`DBNDownBeatTracker -j 1`): `real=14.88s`, `max_rss=3,465,396,224`
+- Lite (`analyze_pcm`, `MADMOM_BEATS_LITE_NUM_THREADS=1`): `real=14.94s`, `max_rss=2,642,706,432`
+- Runtime vs upstream: `-0.40%` (slightly slower, within noise)
+- Peak RSS vs upstream: `+23.74%` improvement (lower memory)
+
+Reproduce lite-only timing/RSS stats (3 runs, min/median/max):
+
+```bash
+tools/bench/run_time_l.sh tools/regen/_cache/fixtures/gangnam.wav
+```
+
+Run one upstream-vs-lite CPU/memory comparison (defaults to `threads=1`):
+
+```bash
+.venv/bin/python tools/benchmark_cpu_mem.py --audio tools/regen/_cache/fixtures/gangnam.wav
+```
+
+## Build wheel artifacts
+
+Build a local wheel (and verify bundled model assets are present in the wheel):
+
+```bash
+python -m pip install --upgrade build
+python tools/build_wheels.py --out-dir wheelhouse --clean
+```
+
+Build wheel + sdist:
+
+```bash
+python tools/build_wheels.py --out-dir wheelhouse --sdist --clean
+```
+
+If your local environment is already provisioned and cannot reach package indexes, use:
+
+```bash
+.venv/bin/python tools/build_wheels.py --out-dir wheelhouse --sdist --clean --no-isolation
+```
+
+## Release workflow
+
+GitHub Actions workflow `.github/workflows/release-wheels.yml` builds and publishes artifacts when a semver tag like `v1.0.0` is pushed.
+
+- Wheel matrix: Linux/macOS/Windows for Python 3.11, 3.12, and 3.13
+- One source distribution (`.tar.gz`)
+- All artifacts are attached to the corresponding GitHub Release for direct download
 
 ## Licensing notes
 

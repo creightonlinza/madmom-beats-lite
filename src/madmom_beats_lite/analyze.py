@@ -74,20 +74,20 @@ def _resolve_num_threads() -> int:
 
 
 @lru_cache(maxsize=4)
-def _processor_bundle(num_threads: int) -> _ProcessorBundle:
+def _processor_bundle(num_threads: int, debug: bool) -> _ProcessorBundle:
     # Reuse processor instances to avoid rebuilding multiprocessing pools on
     # every analyze call (a major overhead in repeated invocations).
-    rnn = RNNDownBeatProcessor(num_threads=num_threads)
+    rnn = RNNDownBeatProcessor(num_threads=num_threads, debug=debug)
     dbn = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=FPS, num_threads=num_threads)
     return _ProcessorBundle(rnn=rnn, dbn=dbn, lock=threading.Lock())
 
 
 def _compute_features(
-    samples: np.ndarray, emit: Callable[[int], None], num_threads: int
+    samples: np.ndarray, emit: Callable[[int], None], num_threads: int, debug: bool
 ) -> tuple[np.ndarray, np.ndarray]:
-    mem = MemoryLogger()
+    mem = MemoryLogger(enabled=debug)
     emit(5)
-    processors = _processor_bundle(num_threads)
+    processors = _processor_bundle(num_threads, debug)
     emit(20)
     with processors.lock:
         activations = processors.rnn(samples)
@@ -119,8 +119,11 @@ def analyze_pcm(
     samples: np.ndarray,
     sample_rate: int = TARGET_SAMPLE_RATE,
     progress: bool | Callable[[int], None] = False,
+    debug: bool = False,
 ) -> dict:
     """Analyze mono PCM at 44.1kHz and return beat/downbeat contract data."""
+    if not isinstance(debug, bool):
+        raise ValueError("`debug` must be a bool.")
 
     callback = _progress_callback(progress)
     state = _ProgressState()
@@ -130,12 +133,12 @@ def analyze_pcm(
     _validate_pcm(samples, sample_rate)
     num_threads = _resolve_num_threads()
 
-    activations, beats = _compute_features(samples, emit, num_threads)
+    activations, beats = _compute_features(samples, emit, num_threads, debug)
 
     beat_times = beats[:, 0].astype(float) if len(beats) else np.empty(0, dtype=float)
     beat_numbers = beats[:, 1].astype(int) if len(beats) else np.empty(0, dtype=int)
     beat_confidences = _extract_confidences(activations, beat_times, beat_numbers, FPS)
-    MemoryLogger().log(
+    MemoryLogger(enabled=debug).log(
         "contract_arrays",
         beat_times=beat_times,
         beat_numbers=beat_numbers,

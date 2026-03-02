@@ -25,6 +25,12 @@ def test_analyze_pcm_validates_dtype() -> None:
         analyze_pcm(samples, sample_rate=44100)
 
 
+def test_analyze_pcm_validates_debug_flag() -> None:
+    samples = np.zeros(100, dtype=np.float32)
+    with pytest.raises(ValueError, match="`debug` must be a bool"):
+        analyze_pcm(samples, sample_rate=44100, debug="1")  # type: ignore[arg-type]
+
+
 def test_analyze_pcm_contract_and_progress(monkeypatch: pytest.MonkeyPatch) -> None:
     activations = np.array(
         [
@@ -44,7 +50,7 @@ def test_analyze_pcm_contract_and_progress(monkeypatch: pytest.MonkeyPatch) -> N
         dtype=float,
     )
 
-    def _fake_compute(_samples, emit, _num_threads):
+    def _fake_compute(_samples, emit, _num_threads, _debug):
         emit(12)
         emit(88)
         return activations, beats
@@ -67,7 +73,7 @@ def test_analyze_pcm_contract_and_progress(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_progress_true_prints(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
-    def _fake_compute(_samples, emit, _num_threads):
+    def _fake_compute(_samples, emit, _num_threads, _debug):
         emit(50)
         return np.zeros((1, 2), dtype=np.float32), np.empty((0, 2))
 
@@ -77,6 +83,30 @@ def test_progress_true_prints(capsys: pytest.CaptureFixture[str], monkeypatch: p
     out = capsys.readouterr().out.strip().splitlines()
     assert out[0] == "progress: 0"
     assert out[-1] == "progress: 100"
+
+
+def test_debug_true_emits_memory_logs(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_compute(_samples, emit, _num_threads, _debug):
+        emit(50)
+        return np.zeros((1, 2), dtype=np.float32), np.empty((0, 2))
+
+    monkeypatch.setattr(analyze_mod, "_compute_features", _fake_compute)
+
+    analyze_pcm(np.zeros(64, dtype=np.float32), sample_rate=44100, progress=False, debug=True)
+    out = capsys.readouterr().out
+    assert "mbl_mem stage=contract_arrays" in out
+
+
+def test_debug_false_suppresses_memory_logs(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    def _fake_compute(_samples, emit, _num_threads, _debug):
+        emit(50)
+        return np.zeros((1, 2), dtype=np.float32), np.empty((0, 2))
+
+    monkeypatch.setattr(analyze_mod, "_compute_features", _fake_compute)
+
+    analyze_pcm(np.zeros(64, dtype=np.float32), sample_rate=44100, progress=False, debug=False)
+    out = capsys.readouterr().out
+    assert "mbl_mem" not in out
 
 
 def test_resolve_num_threads_default_and_override(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,0 +1,6 @@
+include LICENSE
+include ATTRIBUTION.md
+include README.md
+
+recursive-include src/madmom_beats_lite/assets *.pkl MODELS_LICENSE
+recursive-include src/madmom_beats_lite/_vendor/madmom_lite *.py *.pyx *.pxd

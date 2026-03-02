@@ -24,7 +24,7 @@ _CHUNK_FRAMES = 4096
 class _DownBeatFeatureProcessor(Processor):
     """Memory-conscious pre-processor for downbeat RNN features."""
 
-    def __init__(self):
+    def __init__(self, debug=False):
         self.signal = SignalProcessor(num_channels=1, sample_rate=44100, dtype=np.float32)
         self.frame_processors = [
             FramedSignalProcessor(frame_size=frame_size, fps=_FPS) for frame_size in _FRAME_SIZES
@@ -33,7 +33,7 @@ class _DownBeatFeatureProcessor(Processor):
         self.filterbanks = [None] * len(_FRAME_SIZES)
         self.diff_frames = [None] * len(_FRAME_SIZES)
         self.feature_bands = [None] * len(_FRAME_SIZES)
-        self.mem = MemoryLogger()
+        self.mem = MemoryLogger(enabled=debug)
 
     def _ensure_filterbank(self, stage, sample_rate, stft=None):
         if self.filterbanks[stage] is None:
@@ -141,14 +141,14 @@ class _DownBeatFeatureProcessor(Processor):
 class RNNDownBeatProcessor(SequentialProcessor):
     """Processor returning beat+downbeat activations at 100 FPS."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, debug=False, **kwargs):
         # pylint: disable=unused-argument
         from functools import partial
 
         from ..ml.nn import NeuralNetworkEnsemble
         from ..models import DOWNBEATS_BLSTM
 
-        pre_processor = _DownBeatFeatureProcessor()
+        pre_processor = _DownBeatFeatureProcessor(debug=debug)
         nn = NeuralNetworkEnsemble.load(DOWNBEATS_BLSTM, **kwargs)
         act = partial(np.delete, obj=0, axis=1)
         super(RNNDownBeatProcessor, self).__init__((pre_processor, nn, act))
