@@ -1,0 +1,3 @@
+[submodule "vendor/madmom"]
+	path = vendor/madmom
+	url = https://github.com/CPJKU/madmom.git

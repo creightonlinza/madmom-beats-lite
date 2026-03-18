@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.coverage
+.DS_Store
+tests/fixtures/*.wav
+tests/fixtures/*.m4a
+tests/golden/*.json
+benchmarks/
+src/madmom/**/*.so
+src/madmom/**/*.dylib
+src/madmom/**/*.pyd
