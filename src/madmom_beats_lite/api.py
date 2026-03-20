@@ -26,6 +26,7 @@ def _validate_audio(audio: np.ndarray, sample_rate: int) -> None:
 
 
 def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReporter) -> np.ndarray:
+    reporter.emit(3, "prepare", "loading madmom preprocessing and inference components")
     from madmom.audio.signal import FramedSignalProcessor, SignalProcessor
     from madmom.audio.spectrogram import (
         FilteredSpectrogramProcessor,
@@ -33,25 +34,25 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
         SpectrogramDifferenceProcessor,
     )
     from madmom.audio.stft import ShortTimeFourierTransformProcessor
-    from madmom.ml.nn import NeuralNetworkEnsemble
+    from madmom.ml.nn import NeuralNetwork, average_predictions
     from madmom.models import DOWNBEATS_BLSTM
 
-    reporter.emit(12, "preprocess", "resampling and downmixing input signal")
+    reporter.emit(4, "preprocess", "resampling and downmixing input signal")
     proc_signal = SignalProcessor(num_channels=1, sample_rate=44100)(signal)
 
     frame_sizes = [1024, 2048, 4096]
     num_bands = [3, 6, 12]
     branch_features: list[np.ndarray] = []
-    branch_pcts = [20, 30, 40]
+    branch_pcts = [5, 10, 15]
 
     for idx, (frame_size, bands, start_pct) in enumerate(zip(frame_sizes, num_bands, branch_pcts), start=1):
         reporter.emit(start_pct, "preprocess", f"branch {idx}/3 framing (frame_size={frame_size})")
         frames = FramedSignalProcessor(frame_size=frame_size, fps=100)(proc_signal)
 
-        reporter.emit(start_pct + 2, "preprocess", f"branch {idx}/3 short-time Fourier transform")
+        reporter.emit(start_pct + 1, "preprocess", f"branch {idx}/3 short-time Fourier transform")
         stft = ShortTimeFourierTransformProcessor()(frames)
 
-        reporter.emit(start_pct + 4, "preprocess", f"branch {idx}/3 filtered spectrogram (bands={bands})")
+        reporter.emit(start_pct + 2, "preprocess", f"branch {idx}/3 filtered spectrogram (bands={bands})")
         filt = FilteredSpectrogramProcessor(
             num_bands=bands,
             fmin=30,
@@ -59,10 +60,10 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
             norm_filters=True,
         )(stft)
 
-        reporter.emit(start_pct + 6, "preprocess", f"branch {idx}/3 logarithmic spectrogram")
+        reporter.emit(start_pct + 3, "preprocess", f"branch {idx}/3 logarithmic spectrogram")
         spec = LogarithmicSpectrogramProcessor(mul=1, add=1)(filt)
 
-        reporter.emit(start_pct + 8, "preprocess", f"branch {idx}/3 spectrogram difference")
+        reporter.emit(start_pct + 4, "preprocess", f"branch {idx}/3 spectrogram difference")
         diff = SpectrogramDifferenceProcessor(
             diff_ratio=0.5,
             positive_diffs=True,
@@ -70,13 +71,24 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
         )(spec)
         branch_features.append(diff)
 
-    reporter.emit(52, "preprocess", "stacking multiresolution features")
+    reporter.emit(20, "preprocess", "stacking multiresolution features")
     features = np.hstack(branch_features)
 
-    reporter.emit(60, "inference", "running downbeat neural network ensemble")
-    nn_out = NeuralNetworkEnsemble.load(DOWNBEATS_BLSTM)(features)
+    reporter.emit(21, "inference", "loading downbeat neural network ensemble")
+    networks = [NeuralNetwork.load(model_path) for model_path in DOWNBEATS_BLSTM]
+    num_networks = len(networks)
+    reporter.emit(24, "inference", f"loaded ensemble models ({num_networks} total)")
 
-    reporter.emit(76, "inference", "removing non-beat activation column")
+    predictions = []
+    for idx, network in enumerate(networks, start=1):
+        predictions.append(network(features))
+        # Reserve 25..84 for model-completion milestones.
+        model_pct = 24 + (60 * idx // num_networks)
+        reporter.emit(model_pct, "inference", f"completed ensemble model {idx}/{num_networks}")
+
+    nn_out = average_predictions(predictions)
+    reporter.emit(85, "inference", "averaged ensemble model activations")
+    reporter.emit(86, "inference", "removing non-beat activation column")
     return np.delete(nn_out, obj=0, axis=1)
 
 
@@ -85,16 +97,18 @@ def _run_dbn_tracking_with_progress(
     cfg: "ExtractionConfig",
     reporter: ProgressReporter,
 ) -> np.ndarray:
+    reporter.emit(88, "track", "loading DBN beat/downbeat tracker components")
     from madmom.features.downbeats import DBNDownBeatTrackingProcessor
 
-    reporter.emit(84, "track", "initializing DBN beat/downbeat tracker")
+    reporter.emit(90, "track", "initializing DBN beat/downbeat tracker")
     tracking_processor = DBNDownBeatTrackingProcessor(
         beats_per_bar=list(cfg.beats_per_bar),
         fps=int(cfg.fps),
     )
-    reporter.emit(90, "track", "decoding beat/downbeat sequence")
+    reporter.emit(92, "track", "initialized DBN beat/downbeat tracker")
+    reporter.emit(94, "track", "decoding beat/downbeat sequence")
     beats = tracking_processor(activations)
-    reporter.emit(95, "track", "decoded beat/downbeat sequence")
+    reporter.emit(97, "track", "decoded beat/downbeat sequence")
     return beats
 
 
@@ -121,11 +135,11 @@ def extract_beats(
     reporter = ProgressReporter(progress_callback)
 
     reporter.emit(0, "start", "starting beat/downbeat extraction")
-    reporter.emit(6, "validate", "validated predecoded input audio")
+    reporter.emit(1, "validate", "validated predecoded input audio")
 
     # Preserve madmom behavior by attaching the source sample-rate to Signal.
     signal = Signal(audio, sample_rate=int(sample_rate))
-    reporter.emit(10, "prepare", "created madmom Signal from decoded audio")
+    reporter.emit(2, "prepare", "created madmom Signal from decoded audio")
 
     activations = _run_rnn_downbeat_with_progress(signal, reporter)
     beats = _run_dbn_tracking_with_progress(activations, cfg, reporter)
@@ -144,7 +158,7 @@ def extract_beats(
 
     beat_times = beats[:, 0].astype(np.float64)
     beat_numbers = beats[:, 1].astype(np.int64)
-    reporter.emit(97, "postprocess", "deriving beat confidences")
+    reporter.emit(99, "postprocess", "deriving beat confidences")
     beat_confidences = derive_confidences(activations, beat_times, beat_numbers, int(cfg.fps))
 
     downbeat_mask = beat_numbers == 1
