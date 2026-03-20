@@ -12,10 +12,23 @@ import io as _io
 import numpy as np
 
 from .audio import load_audio_file
-from .midi import load_midi, write_midi
 from ..utils import suppress_warnings, string_types
 
 ENCODING = 'utf8'
+
+
+def load_midi(*args, **kwargs):
+    # lazy import to keep MIDI dependencies optional for beat/downbeat runtime
+    from .midi import load_midi as _load_midi
+
+    return _load_midi(*args, **kwargs)
+
+
+def write_midi(*args, **kwargs):
+    # lazy import to keep MIDI dependencies optional for beat/downbeat runtime
+    from .midi import write_midi as _write_midi
+
+    return _write_midi(*args, **kwargs)
 
 # dtype for numpy structured arrays that contain labelled segments
 # 'label' needs to be castable to str

@@ -2,21 +2,19 @@
 requires = [
   "setuptools>=69",
   "wheel==0.45.1",
-  "Cython==3.0.11",
   "numpy==2.2.3",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "madmom-beats-lite"
-version = "1.0.0"
+version = "1.0.1"
 description = "Parity-safe beat/downbeat extraction wrapper around pinned upstream madmom"
 readme = "README.md"
 requires-python = ">=3.9,<3.13"
 dependencies = [
   "numpy==2.2.3",
   "scipy==1.13.1",
-  "mido==1.3.2",
 ]
 
 [project.scripts]
@@ -32,7 +30,7 @@ where = ["src"]
 madmom = [
   "models/LICENSE",
   "models/README.rst",
-  "models/*/*/*",
+  "models/downbeats/2016/downbeats_blstm_*.pkl",
 ]
 
 [tool.pytest.ini_options]
