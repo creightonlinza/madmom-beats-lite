@@ -15,6 +15,13 @@ Minimal, parity-safe beat/downbeat extraction library with bundled madmom runtim
 
 This project does **not** target memory/CPU optimization. Behavior parity is the priority.
 
+## Lite Scope
+
+The bundled `madmom` runtime is intentionally trimmed to the offline beat/downbeat path used here:
+
+- kept: signal/STFT/spectrogram preprocessing, downbeat tracking, HMM decoder, required NN layers, and `downbeats_blstm` model files,
+- removed: unrelated feature domains (onsets/chords/key/notes/tempo/pattern tracking assets), evaluation modules, and unused model families.
+
 ## Pinned Upstream
 
 Official upstream `madmom` is pinned as a git submodule:

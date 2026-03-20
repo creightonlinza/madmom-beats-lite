@@ -19,9 +19,6 @@ import doctest
 
 from importlib.metadata import PackageNotFoundError, distribution
 
-# import all packages
-from . import audio, evaluation, features, io, ml, models, processors, utils
-
 # define a version variable
 try:
     __version__ = distribution("madmom").version
