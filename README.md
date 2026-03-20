@@ -15,6 +15,17 @@ Minimal, parity-safe beat/downbeat extraction library with bundled madmom runtim
 
 This project does **not** target memory/CPU optimization. Behavior parity is the priority.
 
+## Why This Is a Win
+
+- Lite API surface: one focused extraction contract for beat/downbeat output + progress events.
+- Standalone artifact: no separate `madmom` package install required for consumers.
+- Strict parity guardrails: golden generation + strict comparison workflow (`float-tolerance 0.0`).
+- Practical observability: monotonic structured progress events for CLI and Python API users.
+- Meaningful footprint reduction after trimming:
+  - vendored runtime (`src/madmom`): about `41M` -> `6.7M`
+  - vendored models (`src/madmom/models`): about `34M` -> `3.2M`
+  - local built wheel (cp311/macOS arm64): about `29M` -> `3.3M`
+
 ## Lite Scope
 
 The bundled `madmom` runtime is intentionally trimmed to the offline beat/downbeat path used here:
@@ -34,12 +45,14 @@ No floating branch is used.
 
 ## Architecture
 
-The extraction path mirrors the upstream flow:
+Two paths are intentionally maintained:
 
-1. `Signal(audio, sample_rate=<source_sr>)`
-2. `RNNDownBeatProcessor()` at `fps=100`
-3. `DBNDownBeatTrackingProcessor(beats_per_bar=[3,4], fps=100)`
-4. Output normalization to the structured contract.
+1. Reference parity path (`run_reference_extraction`), directly mirroring upstream:
+   - `Signal(audio, sample_rate=<source_sr>)`
+   - `RNNDownBeatProcessor()` at `fps=100`
+   - `DBNDownBeatTrackingProcessor(beats_per_bar=[3,4], fps=100)`
+2. Production API path (`extract_beats`), equivalent processing stages instrumented for fine-grained progress reporting.
+3. Shared output normalization to the structured result contract.
 
 The core API accepts predecoded `numpy.ndarray` audio only. It does not decode files.
 
@@ -79,6 +92,7 @@ Progress events are structured JSON with monotonic integer percentages (`0..100`
 
 - CLI: progress on `stderr`, final result on `stdout` (or `--output` file)
 - Python API: provide `progress_callback(event)`
+- Main runtime dependencies for beat/downbeat extraction: `numpy`, `scipy`
 
 ## Local Setup
 
