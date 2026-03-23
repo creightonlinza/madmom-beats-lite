@@ -18,13 +18,16 @@ This project does **not** target memory/CPU optimization. Behavior parity is the
 ## Why This Is a Win
 
 - Lite API surface: one focused extraction contract for beat/downbeat output + progress events.
-- Standalone artifact: no separate `madmom` package install required for consumers.
+- Standalone artifact: no separate `madmom` package install required for consumers; wheel includes the required trimmed `madmom` runtime + `downbeats_blstm` model files.
 - Strict parity guardrails: golden generation + strict comparison workflow (`float-tolerance 0.0`).
 - Practical observability: monotonic structured progress events for CLI and Python API users.
 - Meaningful footprint reduction after trimming:
   - vendored runtime (`src/madmom`): about `41M` -> `6.7M`
   - vendored models (`src/madmom/models`): about `34M` -> `3.2M`
-  - local built wheel (cp311/macOS arm64): about `29M` -> `3.3M`
+  - local wheel build comparison (cp311/macOS arm64):
+    - regular vendored `madmom`: `24,542,003` bytes (~`24.5M`)
+    - `madmom-beats-lite`: `3,465,609` bytes (~`3.5M`)
+    - reduction: ~`7.08x` smaller (~`85.88%` smaller)
 
 ## Lite Scope
 
