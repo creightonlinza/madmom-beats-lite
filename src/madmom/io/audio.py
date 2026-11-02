@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 
 import numpy as np
 
@@ -359,6 +360,42 @@ def nonstreamable_mp4_file_object(infile, cmd="ffprobe"):
         return False
 
 
+def _pipe_through(proc, data):
+    """
+    Write `data` to the stdin of a process and return everything it outputs.
+
+    `Popen.communicate` writes at most PIPE_BUF bytes per call, which on some
+    platforms means a system call for every 512 bytes.
+
+    Parameters
+    ----------
+    proc : subprocess.Popen instance
+        Process with both stdin and stdout connected to pipes.
+    data : memoryview
+        Bytes to be written.
+
+    Returns
+    -------
+    bytes
+        Output of the process.
+
+    """
+    def write():
+        try:
+            proc.stdin.write(data)
+            proc.stdin.close()
+        except (BrokenPipeError, ValueError):
+            # the process quit early, its return code tells what happened
+            pass
+    writer = threading.Thread(target=write, daemon=True)
+    writer.start()
+    output = proc.stdout.read()
+    writer.join()
+    proc.stdout.close()
+    proc.wait()
+    return output
+
+
 def decode_to_memory(infile, fmt='f32le', sample_rate=None, num_channels=1,
                      channel=None, skip=None, max_len=None,
                      cmd_decode='ffmpeg', cmd_probe='ffprobe',
@@ -416,11 +453,7 @@ def decode_to_memory(infile, fmt='f32le', sample_rate=None, num_channels=1,
     if isinstance(infile, Signal):
         # Note: np.getbuffer was removed in Python 3, but Python 2 memoryviews
         #       do not have the cast() method
-        try:
-            signal, _ = proc.communicate(np.getbuffer(infile))
-        except AttributeError:
-            mv = memoryview(infile)
-            signal, _ = proc.communicate(mv.cast('b'))
+        signal = _pipe_through(proc, memoryview(infile).cast('b'))
     elif isinstance(infile, file_types):
         signal, _ = proc.communicate(infile.read())
         infile.seek(0)
