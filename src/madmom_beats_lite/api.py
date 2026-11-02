@@ -26,8 +26,7 @@ def _validate_audio(audio: np.ndarray, sample_rate: int) -> None:
         raise ValueError("sample_rate must be a positive integer")
 
 
-def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReporter) -> np.ndarray:
-    reporter.emit(3, "prepare", "loading madmom preprocessing and inference components")
+def _compute_features(signal: np.ndarray, reporter: ProgressReporter) -> np.ndarray:
     from madmom.audio.signal import FramedSignalProcessor, SignalProcessor
     from madmom.audio.spectrogram import (
         FilteredSpectrogramProcessor,
@@ -36,8 +35,6 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
         SpectrogramDifferenceProcessor,
     )
     from madmom.audio.stft import fft_frequencies, stft_magnitudes
-    from madmom.ml.nn import NeuralNetwork, average_predictions
-    from madmom.models import DOWNBEATS_BLSTM
 
     reporter.emit(4, "preprocess", "resampling and downmixing input signal")
     proc_signal = SignalProcessor(num_channels=1, sample_rate=44100)(signal)
@@ -87,7 +84,16 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
         branch_features.append(diff)
 
     reporter.emit(20, "preprocess", "stacking multiresolution features")
-    features = np.hstack(branch_features)
+    return np.hstack(branch_features)
+
+
+def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReporter) -> np.ndarray:
+    reporter.emit(3, "prepare", "loading madmom preprocessing and inference components")
+    from madmom.ml.nn import NeuralNetwork, average_predictions
+    from madmom.models import DOWNBEATS_BLSTM
+
+    # Preprocessing buffers are released here, before the networks allocate theirs.
+    features = _compute_features(signal, reporter)
 
     reporter.emit(21, "inference", "loading downbeat neural network ensemble")
     networks = [NeuralNetwork.load(model_path) for model_path in DOWNBEATS_BLSTM]
