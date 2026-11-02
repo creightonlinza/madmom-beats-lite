@@ -27,6 +27,7 @@ from numpy.math cimport INFINITY
 
 
 ctypedef np.uint32_t uint32_t
+ctypedef np.int32_t int32_t
 
 
 class TransitionModel(object):
@@ -514,27 +515,44 @@ class HiddenMarkovModel(object):
 
         # previous viterbi variables, init with the initial state distribution
         cdef double [::1] previous_viterbi = np.log(self.initial_distribution)
+        cdef double [::1] swap_viterbi
 
-        # back-tracking pointers
-        cdef uint32_t [:, ::1] bt_pointers = np.empty((num_observations,
-                                                       num_states),
-                                                      dtype=np.uint32)
+        # back-tracking pointers are stored only for states reachable from
+        # more than one state; the only previous state of any other state is
+        # known from the transition model and needs no per-frame storage
+        num_prev_states = np.diff(tm.pointers)
+        cdef int32_t [::1] bt_index = np.where(
+            num_prev_states == 1, -1,
+            np.cumsum(num_prev_states != 1) - 1).astype(np.int32)
+        cdef uint32_t [:, ::1] bt_pointers = np.empty(
+            (num_observations, np.count_nonzero(num_prev_states != 1)),
+            dtype=np.uint32)
         # define counters etc.
         cdef unsigned int state, frame, prev_state, pointer
+        cdef int index
         cdef double density, transition_prob
 
         # iterate over all observations
         for frame in range(num_observations):
             # search for the best transition
             for state in range(num_states):
-                # reset the current viterbi variable
-                current_viterbi[state] = -INFINITY
                 # get the observation model probability density value
                 # the om_pointers array holds pointers to the correct
                 # observation probability density value for the actual state
                 # (i.e. column in the om_densities array)
-                # Note: defining density here gives a 5% speed-up!?
                 density = om_densities[frame, om_pointers[state]]
+                index = bt_index[state]
+                if index < 0:
+                    # single previous state; a transition that is not greater
+                    # than -inf (e.g. NaN) leaves the state unreachable
+                    pointer = tm_pointers[state]
+                    transition_prob = previous_viterbi[tm_states[pointer]] + \
+                                      tm_probabilities[pointer] + density
+                    current_viterbi[state] = transition_prob \
+                        if transition_prob > -INFINITY else -INFINITY
+                    continue
+                # reset the current viterbi variable
+                current_viterbi[state] = -INFINITY
                 # iterate over all possible previous states
                 # the tm_pointers array holds pointers to the states which are
                 # stored in the tm_states array
@@ -553,15 +571,17 @@ class HiddenMarkovModel(object):
                         # update the transition probability
                         current_viterbi[state] = transition_prob
                         # update the back tracking pointers
-                        bt_pointers[frame, state] = prev_state
+                        bt_pointers[frame, index] = prev_state
 
-            # overwrite the old states with the current ones
-            previous_viterbi[:] = current_viterbi
+            # the current states become the previous ones
+            swap_viterbi = previous_viterbi
+            previous_viterbi = current_viterbi
+            current_viterbi = swap_viterbi
 
         # fetch the final best state
-        state = np.asarray(current_viterbi).argmax()
+        state = np.asarray(previous_viterbi).argmax()
         # set the path's probability to that of the best state
-        log_probability = current_viterbi[state]
+        log_probability = previous_viterbi[state]
 
         # raise warning if the sequence has -inf probability
         if np.isinf(log_probability):
@@ -579,7 +599,9 @@ class HiddenMarkovModel(object):
             # save the state in the path
             path[frame] = state
             # fetch the next previous one
-            state = bt_pointers[frame, state]
+            index = bt_index[state]
+            state = tm_states[tm_pointers[state]] if index < 0 \
+                else bt_pointers[frame, index]
 
         # return the tracked path and its probability
         return path, log_probability
