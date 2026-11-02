@@ -14,6 +14,7 @@ import numpy as np
 from numpy.lib.stride_tricks import as_strided
 from scipy.ndimage import convolve as _scipy_convolve, maximum_filter
 
+from . import _lstm
 from .activations import sigmoid, tanh
 
 NN_DTYPE = np.float32
@@ -555,6 +556,24 @@ class LSTMLayer(RecurrentLayer):
         # reset layer
         if reset:
             self.reset()
+        if self._supports_native(data):
+            return _lstm.activate(self, data)
+        return self._activate_python(data)
+
+    def _supports_native(self, data):
+        """Check whether the native implementation can process the data."""
+        gates = (self.input_gate, self.forget_gate, self.output_gate)
+        arrays = [data, self._prev, self._state]
+        for gate in gates + (self.cell,):
+            arrays += [gate.weights, gate.bias, gate.recurrent_weights]
+        arrays += [gate.peephole_weights for gate in gates]
+        return (self.activation_fn is tanh and self.cell.activation_fn is tanh
+                and all(gate.activation_fn is sigmoid for gate in gates)
+                and all(isinstance(a, np.ndarray) and a.dtype == NN_DTYPE
+                        for a in arrays))
+
+    def _activate_python(self, data):
+        """Process the data starting from the current state of the layer."""
         # init arrays
         size = len(data)
         # output matrix for the whole sequence

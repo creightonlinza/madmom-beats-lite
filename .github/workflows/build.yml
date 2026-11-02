@@ -34,7 +34,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/test_contract.py tests/test_progress.py tests/test_parity_ci_sample.py tests/test_parity_short.py tests/test_parity_full.py
+          pytest tests/test_contract.py tests/test_progress.py tests/test_lstm_native.py tests/test_parity_ci_sample.py tests/test_parity_short.py tests/test_parity_full.py
 
   build-wheels:
     needs: tests
@@ -57,7 +57,7 @@ jobs:
           CIBW_ARCHS_LINUX: "x86_64"
           CIBW_ARCHS_MACOS: "universal2"
           CIBW_ARCHS_WINDOWS: "AMD64"
-          CIBW_TEST_COMMAND: 'python -c "import madmom_beats_lite; import madmom.ml.hmm"'
+          CIBW_TEST_COMMAND: 'python -c "import madmom_beats_lite; import madmom.ml.hmm; import madmom.ml.nn._lstm"'
         with:
           output-dir: wheelhouse
 
