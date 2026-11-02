@@ -6,3 +6,8 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -e . --no-deps --no-build-isolation
+if [[ -f vendor/madmom/setup.py ]]; then
+  ./scripts/setup_upstream.sh
+else
+  echo "vendor/madmom is not initialized, parity tests will be skipped" >&2
+fi

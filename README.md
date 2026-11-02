@@ -13,13 +13,13 @@ Minimal, parity-safe beat/downbeat extraction library with bundled madmom runtim
 - strict parity workflow scripts and tests,
 - a wheel artifact build path for downstream consumption.
 
-This project does **not** target memory/CPU optimization. Behavior parity is the priority.
+Behavior parity is the priority: performance work must keep the output bit-identical.
 
 ## Why This Is a Win
 
 - Lite API surface: one focused extraction contract for beat/downbeat output + progress events.
 - Standalone artifact: no separate `madmom` package install required for consumers; wheel includes the required trimmed `madmom` runtime + `downbeats_blstm` model files.
-- Strict parity guardrails: golden generation + strict comparison workflow (`float-tolerance 0.0`).
+- Strict parity guardrails: output is compared against upstream `madmom` with zero tolerance.
 - Practical observability: monotonic structured progress events for CLI and Python API users.
 - Meaningful footprint reduction after trimming:
   - vendored runtime (`src/madmom`): about `41M` -> `6.7M`
@@ -95,7 +95,7 @@ Progress events are structured JSON with monotonic integer percentages (`0..100`
 
 - CLI: progress on `stderr`, final result on `stdout` (or `--output` file)
 - Python API: provide `progress_callback(event)`
-- Main runtime dependencies for beat/downbeat extraction: `numpy`, `scipy`
+- Main runtime dependencies for beat/downbeat extraction: `numpy`, `scipy`; `ffmpeg` for input that is not 44.1 kHz
 
 ## Local Setup
 
@@ -128,31 +128,23 @@ NPZ input must contain `audio` and `sample_rate`.
 
 ## Parity Workflow
 
-### 1) Create short 30s clips
+Parity is checked against unmodified upstream `madmom` from `vendor/madmom`, run in the same environment. Output of numerical code depends on the platform's math libraries, so results stored on one setup do not stay comparable on another.
 
 ```bash
-./scripts/make_short_clip.sh /path/to/input_a.m4a /path/to/input_b.webm
+./scripts/setup_upstream.sh                # part of setup_env.sh
+pytest tests/test_parity_upstream.py       # sample audio from the submodule
 ```
 
-Short clips are written to `benchmarks/short/`.
+Comparison is strict (`float_tolerance=0.0`).
 
-For full-track parity assets, place full inputs in `benchmarks/full/`.
-
-### 2) Generate golden references (current reference chain)
+To also compare your own tracks, predecode them to `benchmarks/predecoded/`:
 
 ```bash
-./scripts/generate_golden.sh short   # short clips
-./scripts/generate_golden.sh full    # full tracks
-./scripts/generate_golden.sh all
+python3 scripts/predecode_to_npz.py --input /path/to/track.m4a --output benchmarks/predecoded/track.npz
+UPSTREAM_PARITY_ASSETS=1 pytest tests/test_parity_upstream.py
 ```
 
-### 3) Run `madmom-beats-lite` parity checks
-
-```bash
-./scripts/run_parity.sh
-```
-
-Comparison is strict by default (`--float-tolerance 0.0`).
+`./scripts/make_short_clip.sh /path/to/track.m4a` writes a 30s clip to `benchmarks/short/` to predecode instead.
 
 ## Tests
 
@@ -166,8 +158,9 @@ Included:
 
 - output contract tests
 - progress contract tests
-- CI parity test (vendored sample audio)
-- short/full parity tests (auto-skip until assets + golden files exist)
+- native LSTM and Viterbi regression tests
+- parity with the reference path (`test_parity_ci_sample.py`)
+- parity with upstream `madmom` (`test_parity_upstream.py`, skipped until `setup_upstream.sh` has run)
 
 ## Build Wheel
 

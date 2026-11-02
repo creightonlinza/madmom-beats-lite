@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Sequence
 
 import numpy as np
@@ -25,17 +26,15 @@ def _validate_audio(audio: np.ndarray, sample_rate: int) -> None:
         raise ValueError("sample_rate must be a positive integer")
 
 
-def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReporter) -> np.ndarray:
-    reporter.emit(3, "prepare", "loading madmom preprocessing and inference components")
+def _compute_features(signal: np.ndarray, reporter: ProgressReporter) -> np.ndarray:
     from madmom.audio.signal import FramedSignalProcessor, SignalProcessor
     from madmom.audio.spectrogram import (
         FilteredSpectrogramProcessor,
         LogarithmicSpectrogramProcessor,
+        Spectrogram,
         SpectrogramDifferenceProcessor,
     )
-    from madmom.audio.stft import ShortTimeFourierTransformProcessor
-    from madmom.ml.nn import NeuralNetwork, average_predictions
-    from madmom.models import DOWNBEATS_BLSTM
+    from madmom.audio.stft import fft_frequencies, stft_magnitudes
 
     reporter.emit(4, "preprocess", "resampling and downmixing input signal")
     proc_signal = SignalProcessor(num_channels=1, sample_rate=44100)(signal)
@@ -44,21 +43,33 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
     num_bands = [3, 6, 12]
     branch_features: list[np.ndarray] = []
     branch_pcts = [5, 10, 15]
+    # All branches have the same number of frames and share one buffer sized for the largest.
+    num_frames = len(FramedSignalProcessor(frame_size=max(frame_sizes), fps=100)(proc_signal))
+    magnitudes_buffer = np.empty(num_frames * (max(frame_sizes) >> 1), dtype=np.float32)
 
     for idx, (frame_size, bands, start_pct) in enumerate(zip(frame_sizes, num_bands, branch_pcts), start=1):
         reporter.emit(start_pct, "preprocess", f"branch {idx}/3 framing (frame_size={frame_size})")
         frames = FramedSignalProcessor(frame_size=frame_size, fps=100)(proc_signal)
 
         reporter.emit(start_pct + 1, "preprocess", f"branch {idx}/3 short-time Fourier transform")
-        stft = ShortTimeFourierTransformProcessor()(frames)
+        num_bins = frame_size >> 1
+        magnitudes = magnitudes_buffer[: num_frames * num_bins].reshape(num_frames, num_bins)
+        stft_magnitudes(frames, magnitudes)
 
         reporter.emit(start_pct + 2, "preprocess", f"branch {idx}/3 filtered spectrogram (bands={bands})")
+        spectrogram = magnitudes.view(Spectrogram)
+        # The stages below only read this metadata from the STFT.
+        spectrogram.stft = SimpleNamespace(
+            frames=frames,
+            window=np.hanning(frame_size),
+            bin_frequencies=fft_frequencies(num_bins, frames.signal.sample_rate),
+        )
         filt = FilteredSpectrogramProcessor(
             num_bands=bands,
             fmin=30,
             fmax=17000,
             norm_filters=True,
-        )(stft)
+        )(spectrogram)
 
         reporter.emit(start_pct + 3, "preprocess", f"branch {idx}/3 logarithmic spectrogram")
         spec = LogarithmicSpectrogramProcessor(mul=1, add=1)(filt)
@@ -72,7 +83,16 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
         branch_features.append(diff)
 
     reporter.emit(20, "preprocess", "stacking multiresolution features")
-    features = np.hstack(branch_features)
+    return np.hstack(branch_features)
+
+
+def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReporter) -> np.ndarray:
+    reporter.emit(3, "prepare", "loading madmom preprocessing and inference components")
+    from madmom.ml.nn import NeuralNetwork, average_predictions
+    from madmom.models import DOWNBEATS_BLSTM
+
+    # Preprocessing buffers are released here, before the networks allocate theirs.
+    features = _compute_features(signal, reporter)
 
     reporter.emit(21, "inference", "loading downbeat neural network ensemble")
     networks = [NeuralNetwork.load(model_path) for model_path in DOWNBEATS_BLSTM]

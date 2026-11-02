@@ -1,0 +1,2 @@
+include src/madmom/ml/hmm.pyx
+include src/madmom/ml/nn/_lstm.pyx

@@ -9,8 +9,10 @@ This module contains downbeat and bar tracking related functionality.
 
 from __future__ import absolute_import, division, print_function
 
+import contextvars
 import sys
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -277,8 +279,17 @@ class DBNDownBeatTrackingProcessor(Processor):
         if not activations.any():
             return np.empty((0, 2))
         # (parallel) decoding of the activations with HMM
-        results = list(self.map(_process_dbn, zip(self.hmms,
-                                                  it.repeat(activations))))
+        tasks = zip(self.hmms, it.repeat(activations))
+        if self.map is map and len(self.hmms) > 1:
+            # decoding releases the GIL; each task keeps the context of the
+            # caller, which holds NumPy's floating point error state
+            with ThreadPoolExecutor(len(self.hmms)) as executor:
+                futures = [executor.submit(contextvars.copy_context().run,
+                                           _process_dbn, task)
+                           for task in tasks]
+                results = [future.result() for future in futures]
+        else:
+            results = list(self.map(_process_dbn, tasks))
         # choose the best HMM (highest log probability)
         best = np.argmax(list(r[1] for r in results))
         # the best path through the state space

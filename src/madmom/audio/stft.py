@@ -12,6 +12,7 @@ from __future__ import absolute_import, division, print_function
 import warnings
 
 import numpy as np
+import scipy.fft as fft
 import scipy.fftpack as fftpack
 
 try:
@@ -24,6 +25,8 @@ from ..processors import Processor
 from .signal import Signal, FramedSignal
 
 STFT_DTYPE = np.complex64
+# number of frames transformed at once by `stft_magnitudes`
+STFT_CHUNK_SIZE = 64
 
 
 def fft_frequencies(num_fft_bins, sample_rate):
@@ -131,6 +134,89 @@ def stft(frames, window, fft_size=None, circular_shift=False,
             data[f] = fftpack.fft(fft_signal, fft_size, axis=0)[:num_fft_bins]
     # return STFT
     return data
+
+
+def _scale_window(window, frames):
+    """
+    Return the FFT window for the given frames, scaled for integer signals.
+
+    Parameters
+    ----------
+    window : numpy array or None
+        Window of shape (frame_size,).
+    frames : :class:`FramedSignal` instance
+        Framed signal the window is applied to.
+
+    Returns
+    -------
+    numpy array or None
+        Window to be applied to the frames before the FFT.
+
+    """
+    try:
+        # if the signal is not scaled, scale the window accordingly
+        max_range = float(np.iinfo(frames.signal.dtype).max)
+        try:
+            # scale the window by the max_range
+            return window / max_range
+        except TypeError:
+            # if the window is None we can't scale it, thus create a
+            # uniform window and scale it accordingly
+            return np.ones(frames.shape[1]) / max_range
+    except ValueError:
+        # no scaling needed, use the window as is (can also be None)
+        return window
+
+
+def stft_magnitudes(frames, out):
+    """
+    Compute the magnitudes of the STFT of the given framed signal into `out`,
+    without keeping the complex STFT in memory.
+
+    The values are those of ``np.abs(stft)`` of a
+    :class:`ShortTimeFourierTransform` of the frames with a Hann window.
+
+    Parameters
+    ----------
+    frames : :class:`FramedSignal` instance
+        Framed signal.
+    out : numpy array, shape (num_frames, frame_size // 2)
+        Array the magnitudes are written to.
+
+    """
+    frame_size = frames.shape[1]
+    num_frames = len(frames)
+    num_fft_bins = frame_size >> 1
+    fft_window = _scale_window(np.hanning(frame_size), frames)
+    # use FFTW to speed up STFT
+    try:
+        fftw = rfft_builder(fft_window, None, axis=0)
+    except AttributeError:
+        fftw = None
+    if fftw:
+        row = np.empty(num_fft_bins, STFT_DTYPE)
+        for f, frame in enumerate(frames):
+            row[:] = fftw(np.multiply(frame, fft_window))[:num_fft_bins]
+            np.abs(row, out=out[f])
+        return
+    signal = np.asarray(frames.signal)
+    # position of the first sample of each frame, see `signal_frame`
+    starts = ((np.arange(num_frames) * frames.hop_size).astype(np.int64) -
+              frame_size // 2 - int(frames.origin))
+    windowed = np.empty((min(STFT_CHUNK_SIZE, num_frames), frame_size))
+    for chunk_start in range(0, num_frames, STFT_CHUNK_SIZE):
+        chunk_stop = min(chunk_start + STFT_CHUNK_SIZE, num_frames)
+        for f in range(chunk_start, chunk_stop):
+            start = starts[f]
+            if start >= 0 and start + frame_size <= len(signal):
+                frame = signal[start:start + frame_size]
+            else:
+                # part of the frame falls outside the signal, padding needed
+                frame = frames[f]
+            np.multiply(frame, fft_window, out=windowed[f - chunk_start])
+        spectra = fft.rfft(windowed[:chunk_stop - chunk_start], axis=1)
+        np.abs(spectra[:, :num_fft_bins].astype(STFT_DTYPE),
+               out=out[chunk_start:chunk_stop])
 
 
 def phase(stft):
@@ -334,19 +420,7 @@ frame_size=2048, fps=100, sample_rate=22050)
             if hasattr(window, '__call__'):
                 window = window(frame_size)
             # window used for FFT
-            try:
-                # if the signal is not scaled, scale the window accordingly
-                max_range = float(np.iinfo(frames.signal.dtype).max)
-                try:
-                    # scale the window by the max_range
-                    fft_window = window / max_range
-                except TypeError:
-                    # if the window is None we can't scale it, thus create a
-                    # uniform window and scale it accordingly
-                    fft_window = np.ones(frame_size) / max_range
-            except ValueError:
-                # no scaling needed, use the window as is (can also be None)
-                fft_window = window
+            fft_window = _scale_window(window, frames)
 
         # use FFTW to speed up STFT
         try:

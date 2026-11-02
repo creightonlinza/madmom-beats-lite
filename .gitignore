@@ -11,6 +11,7 @@ tests/fixtures/*.wav
 tests/fixtures/*.m4a
 tests/golden/*.json
 benchmarks/
+src/madmom/**/*.c
 src/madmom/**/*.so
 src/madmom/**/*.dylib
 src/madmom/**/*.pyd
