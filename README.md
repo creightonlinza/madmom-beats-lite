@@ -13,7 +13,7 @@ Minimal, parity-safe beat/downbeat extraction library with bundled madmom runtim
 - strict parity workflow scripts and tests,
 - a wheel artifact build path for downstream consumption.
 
-This project does **not** target memory/CPU optimization. Behavior parity is the priority.
+Behavior parity is the priority: performance work must keep the output bit-identical.
 
 ## Why This Is a Win
 
@@ -95,7 +95,7 @@ Progress events are structured JSON with monotonic integer percentages (`0..100`
 
 - CLI: progress on `stderr`, final result on `stdout` (or `--output` file)
 - Python API: provide `progress_callback(event)`
-- Main runtime dependencies for beat/downbeat extraction: `numpy`, `scipy`
+- Main runtime dependencies for beat/downbeat extraction: `numpy`, `scipy`; `ffmpeg` for input that is not 44.1 kHz
 
 ## Local Setup
 
