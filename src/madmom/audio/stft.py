@@ -12,6 +12,7 @@ from __future__ import absolute_import, division, print_function
 import warnings
 
 import numpy as np
+import scipy.fft as fft
 import scipy.fftpack as fftpack
 
 try:
@@ -24,6 +25,8 @@ from ..processors import Processor
 from .signal import Signal, FramedSignal
 
 STFT_DTYPE = np.complex64
+# number of frames transformed at once by `stft_magnitudes`
+STFT_CHUNK_SIZE = 64
 
 
 def fft_frequencies(num_fft_bins, sample_rate):
@@ -182,6 +185,7 @@ def stft_magnitudes(frames, out):
 
     """
     frame_size = frames.shape[1]
+    num_frames = len(frames)
     num_fft_bins = frame_size >> 1
     fft_window = _scale_window(np.hanning(frame_size), frames)
     # use FFTW to speed up STFT
@@ -189,15 +193,30 @@ def stft_magnitudes(frames, out):
         fftw = rfft_builder(fft_window, None, axis=0)
     except AttributeError:
         fftw = None
-    row = np.empty(num_fft_bins, STFT_DTYPE)
-    for f, frame in enumerate(frames):
-        fft_signal = np.multiply(frame, fft_window)
-        if fftw:
-            row[:] = fftw(fft_signal)[:num_fft_bins]
-        else:
-            row[:] = fftpack.fft(fft_signal, frame_size,
-                                 axis=0)[:num_fft_bins]
-        np.abs(row, out=out[f])
+    if fftw:
+        row = np.empty(num_fft_bins, STFT_DTYPE)
+        for f, frame in enumerate(frames):
+            row[:] = fftw(np.multiply(frame, fft_window))[:num_fft_bins]
+            np.abs(row, out=out[f])
+        return
+    signal = np.asarray(frames.signal)
+    # position of the first sample of each frame, see `signal_frame`
+    starts = ((np.arange(num_frames) * frames.hop_size).astype(np.int64) -
+              frame_size // 2 - int(frames.origin))
+    windowed = np.empty((min(STFT_CHUNK_SIZE, num_frames), frame_size))
+    for chunk_start in range(0, num_frames, STFT_CHUNK_SIZE):
+        chunk_stop = min(chunk_start + STFT_CHUNK_SIZE, num_frames)
+        for f in range(chunk_start, chunk_stop):
+            start = starts[f]
+            if start >= 0 and start + frame_size <= len(signal):
+                frame = signal[start:start + frame_size]
+            else:
+                # part of the frame falls outside the signal, padding needed
+                frame = frames[f]
+            np.multiply(frame, fft_window, out=windowed[f - chunk_start])
+        spectra = fft.rfft(windowed[:chunk_stop - chunk_start], axis=1)
+        np.abs(spectra[:, :num_fft_bins].astype(STFT_DTYPE),
+               out=out[chunk_start:chunk_stop])
 
 
 def phase(stft):
