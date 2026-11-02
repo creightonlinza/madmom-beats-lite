@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Sequence
 
 import numpy as np
@@ -31,9 +32,10 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
     from madmom.audio.spectrogram import (
         FilteredSpectrogramProcessor,
         LogarithmicSpectrogramProcessor,
+        Spectrogram,
         SpectrogramDifferenceProcessor,
     )
-    from madmom.audio.stft import ShortTimeFourierTransformProcessor
+    from madmom.audio.stft import fft_frequencies, stft_magnitudes
     from madmom.ml.nn import NeuralNetwork, average_predictions
     from madmom.models import DOWNBEATS_BLSTM
 
@@ -44,21 +46,34 @@ def _run_rnn_downbeat_with_progress(signal: np.ndarray, reporter: ProgressReport
     num_bands = [3, 6, 12]
     branch_features: list[np.ndarray] = []
     branch_pcts = [5, 10, 15]
+    # All branches have the same number of frames and share one buffer sized for the largest.
+    magnitudes_buffer: np.ndarray | None = None
 
     for idx, (frame_size, bands, start_pct) in enumerate(zip(frame_sizes, num_bands, branch_pcts), start=1):
         reporter.emit(start_pct, "preprocess", f"branch {idx}/3 framing (frame_size={frame_size})")
         frames = FramedSignalProcessor(frame_size=frame_size, fps=100)(proc_signal)
 
         reporter.emit(start_pct + 1, "preprocess", f"branch {idx}/3 short-time Fourier transform")
-        stft = ShortTimeFourierTransformProcessor()(frames)
+        num_bins = frame_size >> 1
+        if magnitudes_buffer is None:
+            magnitudes_buffer = np.empty(len(frames) * (max(frame_sizes) >> 1), dtype=np.float32)
+        magnitudes = magnitudes_buffer[: len(frames) * num_bins].reshape(len(frames), num_bins)
+        stft_magnitudes(frames, magnitudes)
 
         reporter.emit(start_pct + 2, "preprocess", f"branch {idx}/3 filtered spectrogram (bands={bands})")
+        spectrogram = magnitudes.view(Spectrogram)
+        # The stages below only read this metadata from the STFT.
+        spectrogram.stft = SimpleNamespace(
+            frames=frames,
+            window=np.hanning(frame_size),
+            bin_frequencies=fft_frequencies(num_bins, frames.signal.sample_rate),
+        )
         filt = FilteredSpectrogramProcessor(
             num_bands=bands,
             fmin=30,
             fmax=17000,
             norm_filters=True,
-        )(stft)
+        )(spectrogram)
 
         reporter.emit(start_pct + 3, "preprocess", f"branch {idx}/3 logarithmic spectrogram")
         spec = LogarithmicSpectrogramProcessor(mul=1, add=1)(filt)
