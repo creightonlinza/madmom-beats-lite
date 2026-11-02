@@ -34,7 +34,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/test_contract.py tests/test_progress.py tests/test_lstm_native.py tests/test_parity_ci_sample.py tests/test_parity_short.py tests/test_parity_full.py
+          pytest tests/test_contract.py tests/test_progress.py tests/test_lstm_native.py tests/test_hmm_viterbi.py tests/test_parity_ci_sample.py tests/test_parity_short.py tests/test_parity_full.py
 
   build-wheels:
     needs: tests

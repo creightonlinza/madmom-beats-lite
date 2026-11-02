@@ -30,6 +30,45 @@ ctypedef np.uint32_t uint32_t
 ctypedef np.int32_t int32_t
 
 
+def _single_transition_runs(states, pointers, om_pointers, is_search_state):
+    """
+    Group states without a choice of previous state into runs.
+
+    Within a run, consecutive states have consecutive previous states and
+    transitions and use the same observation density.
+
+    Parameters
+    ----------
+    states : numpy array
+        Previous states of the transition model.
+    pointers : numpy array
+        Pointers of the transition model.
+    om_pointers : numpy array
+        Observation density of each state.
+    is_search_state : numpy array
+        Mask of the states with not exactly one previous state.
+
+    Returns
+    -------
+    numpy array, shape (num_runs, 3)
+        First state, end state (exclusive) and density of each run.
+
+    """
+    num_states = len(om_pointers)
+    prev_states = states[np.minimum(pointers[:-1], len(states) - 1)].astype(int)
+    continues = np.zeros(num_states, dtype=bool)
+    continues[1:] = (~is_search_state[1:] & ~is_search_state[:-1] &
+                     (prev_states[1:] == prev_states[:-1] + 1) &
+                     (om_pointers[1:] == om_pointers[:-1]))
+    candidates = np.nonzero(~is_search_state)[0]
+    first = candidates[~continues[candidates]]
+    # a run ends at the next run or search state, whichever comes first
+    boundaries = np.sort(np.r_[first, np.nonzero(is_search_state)[0],
+                               num_states])
+    stop = boundaries[np.searchsorted(boundaries, first, side='right')]
+    return np.column_stack((first, stop, om_pointers[first])).astype(np.uint32)
+
+
 class TransitionModel(object):
     """
     Transition model class for a HMM.
@@ -510,78 +549,101 @@ class HiddenMarkovModel(object):
         cdef double [:, ::1] om_densities = om.log_densities(observations)
 
         # current viterbi variables
-        cdef double [::1] current_viterbi = np.empty(num_states,
-                                                     dtype=float)
-
+        cdef double [::1] current_viterbi_ = np.empty(num_states, dtype=float)
         # previous viterbi variables, init with the initial state distribution
-        cdef double [::1] previous_viterbi = np.log(self.initial_distribution)
-        cdef double [::1] swap_viterbi
+        cdef double [::1] previous_viterbi_ = np.log(self.initial_distribution)
+        cdef double *current_viterbi = &current_viterbi_[0]
+        cdef double *previous_viterbi = &previous_viterbi_[0]
+        cdef double *swap_viterbi
 
-        # back-tracking pointers are stored only for states reachable from
-        # more than one state; the only previous state of any other state is
-        # known from the transition model and needs no per-frame storage
+        # states reachable from more than one state need back-tracking pointers
+        # and a search for their best previous state
         num_prev_states = np.diff(tm.pointers)
+        is_search_state = num_prev_states != 1
+        cdef uint32_t [::1] search_states = \
+            np.nonzero(is_search_state)[0].astype(np.uint32)
+        cdef unsigned int num_search_states = search_states.size
         cdef int32_t [::1] bt_index = np.where(
-            num_prev_states == 1, -1,
-            np.cumsum(num_prev_states != 1) - 1).astype(np.int32)
+            is_search_state, np.cumsum(is_search_state) - 1, -1
+        ).astype(np.int32)
         cdef uint32_t [:, ::1] bt_pointers = np.empty(
-            (num_observations, np.count_nonzero(num_prev_states != 1)),
-            dtype=np.uint32)
+            (num_observations, num_search_states), dtype=np.uint32)
+        # all other states have a single previous state, which is known from
+        # the transition model; they are processed in runs of consecutive states
+        # which follow each other and share an observation density
+        runs = _single_transition_runs(tm.states, tm.pointers, om.pointers,
+                                       is_search_state)
+        cdef uint32_t [:, ::1] run_view = runs
+        cdef unsigned int num_runs = len(runs)
         # define counters etc.
-        cdef unsigned int state, frame, prev_state, pointer
+        cdef unsigned int state, frame, prev_state, pointer, run, s, stop
         cdef int index
         cdef double density, transition_prob
+        cdef const double *probabilities
+        cdef const double *prev_states
+        cdef double *current
 
-        # iterate over all observations
-        for frame in range(num_observations):
-            # search for the best transition
-            for state in range(num_states):
-                # get the observation model probability density value
-                # the om_pointers array holds pointers to the correct
-                # observation probability density value for the actual state
-                # (i.e. column in the om_densities array)
-                density = om_densities[frame, om_pointers[state]]
-                index = bt_index[state]
-                if index < 0:
-                    # single previous state; a transition that is not greater
-                    # than -inf (e.g. NaN) leaves the state unreachable
-                    pointer = tm_pointers[state]
-                    transition_prob = previous_viterbi[tm_states[pointer]] + \
-                                      tm_probabilities[pointer] + density
-                    current_viterbi[state] = transition_prob \
-                        if transition_prob > -INFINITY else -INFINITY
-                    continue
-                # reset the current viterbi variable
-                current_viterbi[state] = -INFINITY
-                # iterate over all possible previous states
-                # the tm_pointers array holds pointers to the states which are
-                # stored in the tm_states array
-                for pointer in range(tm_pointers[state],
-                                     tm_pointers[state + 1]):
-                    # get the previous state
-                    prev_state = tm_states[pointer]
-                    # weight the previous state with the transition probability
-                    # and the current observation probability density
-                    transition_prob = previous_viterbi[prev_state] + \
-                                      tm_probabilities[pointer] + density
-                    # if this transition probability is greater than the
-                    # current one, overwrite it and save the previous state
-                    # in the back tracking pointers
-                    if transition_prob > current_viterbi[state]:
-                        # update the transition probability
-                        current_viterbi[state] = transition_prob
-                        # update the back tracking pointers
-                        bt_pointers[frame, index] = prev_state
+        with nogil:
+            # iterate over all observations
+            for frame in range(num_observations):
+                # states without a choice; a transition that is not greater
+                # than -inf (e.g. NaN) leaves the state unreachable
+                for run in range(num_runs):
+                    s = run_view[run, 0]
+                    stop = run_view[run, 1] - s
+                    density = om_densities[frame, run_view[run, 2]]
+                    probabilities = &tm_probabilities[tm_pointers[s]]
+                    prev_states = &previous_viterbi[tm_states[tm_pointers[s]]]
+                    current = &current_viterbi[s]
+                    for state in range(stop):
+                        transition_prob = prev_states[state] + \
+                                          probabilities[state] + density
+                        current[state] = transition_prob \
+                            if transition_prob > -INFINITY else -INFINITY
+                # search for the best transition
+                for index in range(num_search_states):
+                    state = search_states[index]
+                    # reset the current viterbi variable
+                    current_viterbi[state] = -INFINITY
+                    # get the observation model probability density value
+                    # the om_pointers array holds pointers to the correct
+                    # observation probability density value for the actual
+                    # state (i.e. column in the om_densities array)
+                    density = om_densities[frame, om_pointers[state]]
+                    # iterate over all possible previous states
+                    # the tm_pointers array holds pointers to the states which
+                    # are stored in the tm_states array
+                    for pointer in range(tm_pointers[state],
+                                         tm_pointers[state + 1]):
+                        # get the previous state
+                        prev_state = tm_states[pointer]
+                        # weight the previous state with the transition
+                        # probability and the current observation probability
+                        # density
+                        transition_prob = previous_viterbi[prev_state] + \
+                                          tm_probabilities[pointer] + density
+                        # if this transition probability is greater than the
+                        # current one, overwrite it and save the previous state
+                        # in the back tracking pointers
+                        if transition_prob > current_viterbi[state]:
+                            # update the transition probability
+                            current_viterbi[state] = transition_prob
+                            # update the back tracking pointers
+                            bt_pointers[frame, index] = prev_state
 
-            # the current states become the previous ones
-            swap_viterbi = previous_viterbi
-            previous_viterbi = current_viterbi
-            current_viterbi = swap_viterbi
+                # the current states become the previous ones
+                swap_viterbi = previous_viterbi
+                previous_viterbi = current_viterbi
+                current_viterbi = swap_viterbi
+
+        # the final variables are in the buffer the pointer refers to
+        previous_viterbi_ = current_viterbi_ \
+            if previous_viterbi == &current_viterbi_[0] else previous_viterbi_
 
         # fetch the final best state
-        state = np.asarray(previous_viterbi).argmax()
+        state = np.asarray(previous_viterbi_).argmax()
         # set the path's probability to that of the best state
-        log_probability = previous_viterbi[state]
+        log_probability = previous_viterbi_[state]
 
         # raise warning if the sequence has -inf probability
         if np.isinf(log_probability):
