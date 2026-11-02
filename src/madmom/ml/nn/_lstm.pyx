@@ -70,12 +70,29 @@ cdef FloatLoop SIGMOID = float_loop(expit)
 cdef FloatLoop TANH = float_loop(np.tanh)
 
 
-cdef inline void gate_input(object x, object weights, object prev,
-                            object recurrent_weights, cnp.ndarray dot_data,
-                            cnp.ndarray dot_prev) except *:
-    """Compute both matrix products of a gate."""
+cdef inline void gate_sum(object x, object weights, object prev,
+                          object recurrent_weights, cnp.ndarray dot_data,
+                          cnp.ndarray dot_prev, const float *bias,
+                          const float *state, const float *peephole,
+                          float *out, cnp.npy_intp n) except *:
+    """
+    Sum up the inputs of a gate, adding the terms in the order of `Gate.activate`.
+
+    Without a peephole (a NULL pointer), the state term is left out.
+
+    """
     PyArray_MatrixProduct2(x, weights, dot_data)
     PyArray_MatrixProduct2(prev, recurrent_weights, dot_prev)
+    cdef const float *d = <const float *>cnp.PyArray_DATA(dot_data)
+    cdef const float *r = <const float *>cnp.PyArray_DATA(dot_prev)
+    cdef cnp.npy_intp j
+    for j in range(n):
+        out[j] = d[j] + bias[j]
+    if peephole != NULL:
+        for j in range(n):
+            out[j] += state[j] * peephole[j]
+    for j in range(n):
+        out[j] += r[j]
 
 
 def activate(layer, data):
@@ -121,8 +138,6 @@ def activate(layer, data):
 
     cdef cnp.ndarray dot_data = np.empty(n, dtype=np.float32)
     cdef cnp.ndarray dot_prev = np.empty(n, dtype=np.float32)
-    cdef float *d = <float *>cnp.PyArray_DATA(dot_data)
-    cdef float *r = <float *>cnp.PyArray_DATA(dot_prev)
     # scratch space: gate input, input gate, forget gate, cell, output gate
     cdef float[:, ::1] work = np.empty((5, n), dtype=np.float32)
     cdef float *tmp = &work[0, 0]
@@ -132,44 +147,34 @@ def activate(layer, data):
     cdef float *og = &work[4, 0]
     state_array = np.array(layer._state, dtype=np.float32)
     cdef float[::1] state = state_array
+    cdef float *st = &state[0]
     cdef float *o
 
     prev = layer._prev
     for i in range(size):
         x = data[i]
         # input gate
-        gate_input(x, w_input, prev, r_input, dot_data, dot_prev)
-        for j in range(n):
-            tmp[j] = d[j] + b_input[j]
-            tmp[j] += state[j] * p_input[j]
-            tmp[j] += r[j]
+        gate_sum(x, w_input, prev, r_input, dot_data, dot_prev,
+                 &b_input[0], st, &p_input[0], tmp, n)
         apply_loop(SIGMOID, tmp, ig, n)
         # forget gate
-        gate_input(x, w_forget, prev, r_forget, dot_data, dot_prev)
-        for j in range(n):
-            tmp[j] = d[j] + b_forget[j]
-            tmp[j] += state[j] * p_forget[j]
-            tmp[j] += r[j]
+        gate_sum(x, w_forget, prev, r_forget, dot_data, dot_prev,
+                 &b_forget[0], st, &p_forget[0], tmp, n)
         apply_loop(SIGMOID, tmp, fg, n)
         # cell
-        gate_input(x, w_cell, prev, r_cell, dot_data, dot_prev)
-        for j in range(n):
-            tmp[j] = d[j] + b_cell[j]
-            tmp[j] += r[j]
+        gate_sum(x, w_cell, prev, r_cell, dot_data, dot_prev,
+                 &b_cell[0], st, NULL, tmp, n)
         apply_loop(TANH, tmp, cl, n)
         # internal state
         for j in range(n):
-            state[j] = cl[j] * ig[j] + state[j] * fg[j]
+            st[j] = cl[j] * ig[j] + st[j] * fg[j]
         # output gate
-        gate_input(x, w_output, prev, r_output, dot_data, dot_prev)
-        for j in range(n):
-            tmp[j] = d[j] + b_output[j]
-            tmp[j] += state[j] * p_output[j]
-            tmp[j] += r[j]
+        gate_sum(x, w_output, prev, r_output, dot_data, dot_prev,
+                 &b_output[0], st, &p_output[0], tmp, n)
         apply_loop(SIGMOID, tmp, og, n)
         # output
         o = &out_view[i, 0]
-        apply_loop(TANH, &state[0], o, n)
+        apply_loop(TANH, st, o, n)
         for j in range(n):
             o[j] *= og[j]
         prev = out[i]

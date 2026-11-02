@@ -45,7 +45,7 @@ jobs:
         env:
           REQUIRE_UPSTREAM_PARITY: "1"
         run: |
-          pytest tests/test_contract.py tests/test_progress.py tests/test_lstm_native.py tests/test_hmm_viterbi.py tests/test_parity_ci_sample.py tests/test_parity_upstream.py
+          pytest tests/test_contract.py tests/test_progress.py tests/test_lstm_native.py tests/test_hmm_viterbi.py tests/test_ffmpeg_pipe.py tests/test_parity_ci_sample.py tests/test_parity_upstream.py
 
   build-wheels:
     needs: tests

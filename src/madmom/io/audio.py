@@ -381,12 +381,18 @@ def _pipe_through(proc, data):
 
     """
     def write():
+        # if the process quits early, its return code tells what happened
         try:
-            proc.stdin.write(data)
-            proc.stdin.close()
-        except (BrokenPipeError, ValueError):
-            # the process quit early, its return code tells what happened
+            try:
+                proc.stdin.write(data)
+            finally:
+                proc.stdin.close()
+        except BrokenPipeError:
             pass
+        except OSError as error:
+            # Windows reports a closed pipe as EINVAL
+            if error.errno != errno.EINVAL:
+                raise
     writer = threading.Thread(target=write, daemon=True)
     writer.start()
     output = proc.stdout.read()

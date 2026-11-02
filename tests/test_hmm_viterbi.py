@@ -5,6 +5,7 @@ import warnings
 import numpy as np
 import pytest
 
+from madmom.features.downbeats import DBNDownBeatTrackingProcessor
 from madmom.ml.hmm import DiscreteObservationModel, HiddenMarkovModel, TransitionModel
 
 
@@ -84,3 +85,25 @@ def test_viterbi_matches_reference(seed: int) -> None:
     expected_path, expected_log_probability = _reference_viterbi(hmm, observations)
     assert path.tobytes() == expected_path.tobytes()
     assert np.float64(log_probability).tobytes() == np.float64(expected_log_probability).tobytes()
+
+
+def test_decoding_threads_use_the_error_state_of_the_caller() -> None:
+    processor = DBNDownBeatTrackingProcessor(beats_per_bar=[3, 4], fps=100)
+    activations = np.full((300, 2), 0.1, dtype=np.float32)
+    activations[100, 0] = 0.0
+    with np.errstate(divide="raise"), pytest.raises(FloatingPointError):
+        processor(activations)
+    with np.errstate(divide="ignore"), warnings.catch_warnings():
+        warnings.simplefilter("error")
+        processor(activations)
+
+
+def test_ignores_observation_pointers_beyond_the_states() -> None:
+    rng = np.random.default_rng(7)
+    hmm = _random_hmm(rng, 12, 3)
+    observations = np.log(rng.integers(1, 4, size=(10, 3)) / 4.0)
+    expected_path, _ = _reference_viterbi(hmm, observations)
+    om = hmm.observation_model
+    om.pointers = np.r_[om.pointers, np.zeros(5, dtype=np.uint32)]
+    path, _ = hmm.viterbi(observations)
+    assert path.tobytes() == expected_path.tobytes()

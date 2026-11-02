@@ -54,7 +54,8 @@ def _single_transition_runs(states, pointers, om_pointers, is_search_state):
         First state, end state (exclusive) and density of each run.
 
     """
-    num_states = len(om_pointers)
+    num_states = len(pointers) - 1
+    om_pointers = om_pointers[:num_states]
     prev_states = states[np.minimum(pointers[:-1], len(states) - 1)].astype(int)
     continues = np.zeros(num_states, dtype=bool)
     continues[1:] = (~is_search_state[1:] & ~is_search_state[:-1] &

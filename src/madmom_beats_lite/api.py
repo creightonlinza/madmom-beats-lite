@@ -44,7 +44,8 @@ def _compute_features(signal: np.ndarray, reporter: ProgressReporter) -> np.ndar
     branch_features: list[np.ndarray] = []
     branch_pcts = [5, 10, 15]
     # All branches have the same number of frames and share one buffer sized for the largest.
-    magnitudes_buffer: np.ndarray | None = None
+    num_frames = len(FramedSignalProcessor(frame_size=max(frame_sizes), fps=100)(proc_signal))
+    magnitudes_buffer = np.empty(num_frames * (max(frame_sizes) >> 1), dtype=np.float32)
 
     for idx, (frame_size, bands, start_pct) in enumerate(zip(frame_sizes, num_bands, branch_pcts), start=1):
         reporter.emit(start_pct, "preprocess", f"branch {idx}/3 framing (frame_size={frame_size})")
@@ -52,9 +53,7 @@ def _compute_features(signal: np.ndarray, reporter: ProgressReporter) -> np.ndar
 
         reporter.emit(start_pct + 1, "preprocess", f"branch {idx}/3 short-time Fourier transform")
         num_bins = frame_size >> 1
-        if magnitudes_buffer is None:
-            magnitudes_buffer = np.empty(len(frames) * (max(frame_sizes) >> 1), dtype=np.float32)
-        magnitudes = magnitudes_buffer[: len(frames) * num_bins].reshape(len(frames), num_bins)
+        magnitudes = magnitudes_buffer[: num_frames * num_bins].reshape(num_frames, num_bins)
         stft_magnitudes(frames, magnitudes)
 
         reporter.emit(start_pct + 2, "preprocess", f"branch {idx}/3 filtered spectrogram (bands={bands})")

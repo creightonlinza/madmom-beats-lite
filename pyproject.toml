@@ -23,6 +23,7 @@ madmom-beats-lite = "madmom_beats_lite.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
